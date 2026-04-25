@@ -28,11 +28,15 @@ jobs:
       - name: Lint code
         run: |
           pip install flake8
-          flake8 .
+          flake8 fraud_pipeline.py
 
       - name: Run unit tests
         run: |
           pytest tests/
+
+      - name: Data Validation (CI check)
+        run: |
+          python ci_data_validation.py
 
   build:
     name: Build Docker Images
@@ -79,3 +83,6 @@ jobs:
       - name: Run Kubeflow Pipeline
         run: |
           kubectl apply -f fraud_pipeline.yaml
+
+      - name: Run monitoring check
+        run: python monitoring/monitor.py
