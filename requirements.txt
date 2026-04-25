@@ -1,0 +1,5 @@
+pandas
+scikit-learn
+kfp==2.16.0
+pytest
+flake8

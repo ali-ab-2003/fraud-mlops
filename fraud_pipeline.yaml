@@ -1,0 +1,650 @@
+# PIPELINE DEFINITION
+# Name: fraud-detection-pipeline
+# Description: End-to-end fraud detection MLOps pipeline
+# Inputs:
+#    deploy_threshold: float [Default: 0.85]
+components:
+  comp-conditional-deployment:
+    executorLabel: exec-conditional-deployment
+    inputDefinitions:
+      parameters:
+        auc_score:
+          parameterType: NUMBER_DOUBLE
+        threshold:
+          defaultValue: 0.85
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+  comp-data-ingestion:
+    executorLabel: exec-data-ingestion
+    outputDefinitions:
+      artifacts:
+        output_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-data-preprocessing:
+    executorLabel: exec-data-preprocessing
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        processed_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-data-validation:
+    executorLabel: exec-data-validation
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        validation_report:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-feature-engineering:
+    executorLabel: exec-feature-engineering
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        engineered_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-model-evaluation:
+    executorLabel: exec-model-evaluation
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        eval_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: NUMBER_DOUBLE
+  comp-model-training:
+    executorLabel: exec-model-training
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        metrics_output:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-conditional-deployment:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - conditional_deployment
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef conditional_deployment(auc_score: float, threshold: float = 0.85):\n\
+          \    if auc_score >= threshold:\n        print(f\"\u2705 AUC {auc_score:.4f}\
+          \ >= {threshold}. Deploying model...\")\n        # In real setup: call kubectl\
+          \ or serving API here\n    else:\n        print(f\"\u274C AUC {auc_score:.4f}\
+          \ < {threshold}. Skipping deployment.\")\n\n"
+        image: python:3.9
+    exec-data-ingestion:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - data_ingestion
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef data_ingestion(output_dataset: Output[Dataset]):\n    import\
+          \ pandas as pd\n    import os\n    import gc\n\n    # \u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\n    # PVC DATA PATH (KEY CHANGE)\n    # \u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\n    data_path = \"/mnt/fraud-artifacts/data\"\n\n    train_path\
+          \ = os.path.join(data_path, \"train_transaction.csv\")\n    identity_path\
+          \ = os.path.join(data_path, \"train_identity.csv\")\n\n    # \u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\n    # VALIDATION (IMPORTANT FOR DEBUGGING)\n    # \u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\n    if not os.path.exists(train_path):\n     \
+          \   raise FileNotFoundError(f\"Missing file: {train_path}\")\n\n    if not\
+          \ os.path.exists(identity_path):\n        raise FileNotFoundError(f\"Missing\
+          \ file: {identity_path}\")\n\n    # \u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n   \
+          \ # LOAD DATA\n    # \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+          \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    print(\"Loading identity\
+          \ (small file)...\")\n    identity = pd.read_csv(identity_path, low_memory=True)\n\
+          \    identity = identity.drop_duplicates(\"TransactionID\")\n    identity\
+          \ = identity.astype(\"float32\", errors=\"ignore\")\n\n    print(\"Loading\
+          \ train in chunks and merging...\")\n    first_chunk = True\n\n    identity\
+          \ = identity.sample(frac=0.3, random_state=42)\n    for chunk in pd.read_csv(train_path,\
+          \ chunksize=50000, low_memory=True):\n\n        merged_chunk = chunk.merge(identity,\
+          \ on=\"TransactionID\", how=\"left\")\n    # write directly instead of storing\n\
+          \        if first_chunk:\n            merged_chunk.to_csv(output_dataset.path,\
+          \ index=False)\n            first_chunk = False\n        else:\n\n     \
+          \       merged_chunk.to_csv(output_dataset.path, mode=\"a\", header=False,\
+          \ index=False)\n\n    del chunk, merged_chunk\n    gc.collect()\n\n    del\
+          \ identity\n    gc.collect()\n\n    print(\"\u2705 Data ingestion successful\"\
+          )\n\n"
+        image: python:3.9
+        resources:
+          cpuLimit: 2.0
+          memoryLimit: 3.0
+          resourceCpuLimit: '2'
+          resourceMemoryLimit: 3G
+    exec-data-preprocessing:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - data_preprocessing
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef data_preprocessing(\n    input_dataset: Input[Dataset],\n   \
+          \ processed_dataset: Output[Dataset]\n):\n    import pandas as pd\n    from\
+          \ sklearn.impute import SimpleImputer\n    import numpy as np\n    import\
+          \ os\n\n    df_sample = pd.read_csv(input_dataset.path, nrows=100000)\n\
+          \    num_cols = df_sample.select_dtypes(include=[\"number\"]).columns\n\
+          \    num_medians = df_sample[num_cols].median()\n\n    first = True\n\n\
+          \   # BASE = \"/mnt/fraud-artifacts\"\n   # os.system(f\"mkdir -p {BASE}/data\"\
+          )\n   # os.system(f\"chmod -R 777 {BASE} || true\")\n   # data_dir = f\"\
+          {BASE}/data\"\n\n    for chunk in pd.read_csv(input_dataset.path, chunksize=50000):\n\
+          \n        chunk = chunk.convert_dtypes()\n\n        chunk[num_cols] = chunk[num_cols].fillna(num_medians)\n\
+          \n        cat_cols = chunk.select_dtypes(include=[\"object\"]).columns\n\
+          \n        for col in cat_cols:\n            mode_val = chunk[col].mode()\n\
+          \            if len(mode_val) > 0:\n                chunk[col] = chunk[col].fillna(mode_val[0])\n\
+          \n        chunk.to_csv(processed_dataset.path, mode=\"w\" if first else\
+          \ \"a\", header=first, index=False)\n\n     #   chunk.to_csv(f\"{data_dir}/preprocessed.csv\"\
+          , mode=\"w\" if first else \"a\", header=first, index=False)\n\n       \
+          \ first = False\n\n    print(f\"Preprocessing done\")\n\n"
+        image: python:3.9
+        resources:
+          memoryLimit: 3.0
+          resourceMemoryLimit: 3G
+    exec-data-validation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - data_validation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef data_validation(\n    input_dataset: Input[Dataset],\n    validation_report:\
+          \ Output[Dataset]\n):\n    import pandas as pd\n    import json\n    import\
+          \ os\n\n    total_rows = 0\n    total_missing = 0\n    total_values = 0\n\
+          \    fraud_sum = 0\n    columns = None\n\n    for chunk in pd.read_csv(input_dataset.path,\
+          \ chunksize=50000):\n        if columns is None:\n            columns =\
+          \ chunk.columns.tolist()\n\n        total_rows += len(chunk)\n        total_missing\
+          \ += chunk.isnull().sum().sum()\n        total_values += chunk.size\n\n\
+          \        if \"isFraud\" in chunk.columns:\n            fraud_sum += chunk[\"\
+          isFraud\"].sum()\n\n    fraud_rate = fraud_sum / total_rows if total_rows\
+          \ > 0 else 0\n\n    report = {\n        \"total_rows\": total_rows,\n  \
+          \      \"total_columns\": len(columns),\n        \"missing_value_pct\":\
+          \ (total_missing / total_values * 100),\n        \"fraud_rate\": float(fraud_rate),\n\
+          \        \"schema_valid\": \"isFraud\" in columns and \"TransactionID\"\
+          \ in columns\n    }\n\n    print(\"Validation Report:\", json.dumps(report,\
+          \ indent=2))\n\n    with open(validation_report.path, \"w\") as f:\n   \
+          \     json.dump(report, f)\n\n    BASE = \"/mnt/fraud-artifacts\"\n    log_dir\
+          \ = f\"{BASE}/logs\"\n\n    os.system(f\"mkdir -p {log_dir}\")\n    os.system(f\"\
+          chmod -R 777 {BASE} || true\")\n\n    log_file = os.path.join(log_dir, \"\
+          validation.json\")\n    with open(log_file, \"w\") as f:\n        json.dump(report,\
+          \ f)\n\n"
+        image: python:3.9
+        resources:
+          memoryLimit: 3.0
+          resourceMemoryLimit: 3G
+    exec-feature-engineering:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - feature_engineering
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef feature_engineering(\n    input_dataset: Input[Dataset],\n  \
+          \  engineered_dataset: Output[Dataset]\n):\n    import pandas as pd\n  \
+          \  import os\n\n    BASE = \"/mnt/fraud-artifacts\"\n\n    #os.system(f\"\
+          mkdir -p {BASE}/data\")\n    #os.system(f\"chmod -R 777 {BASE} || true\"\
+          )\n\n    data_dir = f\"{BASE}/data\"\n\n    first = True\n\n    for chunk\
+          \ in pd.read_csv(input_dataset.path, chunksize=30000):\n\n        chunk\
+          \ = pd.get_dummies(chunk, drop_first=True, sparse=True)\n\n        chunk.to_csv(engineered_dataset.path,\
+          \ mode=\"w\" if first else \"a\", header=first, index=False)\n#        chunk.to_csv(f\"\
+          {data_dir}/features.csv\", mode=\"w\" if first else \"a\", header=first,\
+          \ index=False)\n\n        first = False\n\n    print(f\"Feature engineering\
+          \ done.\")\n\n"
+        image: python:3.9
+        resources:
+          memoryLimit: 3.0
+          resourceMemoryLimit: 3G
+    exec-model-evaluation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_evaluation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ 'joblib' 'numpy' 'xgboost'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.16.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_evaluation(\n    input_dataset: Input[Dataset],\n    model_artifact:\
+          \ Input[Model],\n    eval_metrics: Output[Metrics]\n) -> float:\n    import\
+          \ pandas as pd\n    from sklearn.model_selection import train_test_split\n\
+          \    from sklearn.metrics import (\n        precision_score, recall_score,\n\
+          \        f1_score, roc_auc_score\n    )\n    import joblib\n    import os\n\
+          \n    BASE = \"/mnt/fraud-artifacts\"\n\n    #os.system(f\"mkdir -p {BASE}/logs\"\
+          )\n    #os.system(f\"chmod -R 777 {BASE} || true\")\n\n    log_dir = f\"\
+          {BASE}/logs\"\n\n    df = pd.read_csv(input_dataset.path, nrows=30000, on_bad_lines=\"\
+          skip\")\n    df = df.astype(\"float32\")\n    X = df.drop(columns=[\"isFraud\"\
+          ])\n    y = df[\"isFraud\"]\n\n    # _, X_test, _, y_test = train_test_split(X,\
+          \ y, test_size=0.2, random_state=42, stratify=y)\n    split = int(0.8 *\
+          \ len(df))\n    X_test = X.iloc[split:]\n    y_test = y.iloc[split:]\n\n\
+          \    import gc\n    del df\n    gc.collect()\n\n    model = joblib.load(f\"\
+          {model_artifact.path}/model.pkl\")\n    y_pred = model.predict(X_test)\n\
+          \    # y_prob = model.predict_proba(X_test)[:, 1]\n\n    import numpy as\
+          \ np\n\n    batch_size = 5000\n    probs = []\n\n    for i in range(0, len(X_test),\
+          \ batch_size):\n        batch = X_test.iloc[i:i+batch_size]\n        probs.append(model.predict_proba(batch)[:,\
+          \ 1])\n\n    y_prob = np.concatenate(probs)\n\n    precision = precision_score(y_test,\
+          \ y_pred)\n    recall    = recall_score(y_test, y_pred)\n    f1        =\
+          \ f1_score(y_test, y_pred)\n    auc       = roc_auc_score(y_test, y_prob)\n\
+          \n    eval_metrics.log_metric(\"precision\", precision)\n    eval_metrics.log_metric(\"\
+          recall\", recall)\n    eval_metrics.log_metric(\"f1_score\", f1)\n    eval_metrics.log_metric(\"\
+          auc_roc\", auc)\n\n    import json\n\n    log = {\n        \"precision\"\
+          : float(precision),\n        \"recall\": float(recall),\n        \"f1\"\
+          : float(f1),\n        \"auc\": float(auc)\n    }\n\n    with open(f\"{log_dir}/eval.json\"\
+          , \"w\") as f:\n        json.dump(log, f)\n\n    print(f\"Precision: {precision:.4f},\
+          \ Recall: {recall:.4f}, F1: {f1:.4f}, AUC: {auc:.4f}\")\n    return auc\n\
+          \n"
+        image: python:3.9
+        resources:
+          memoryLimit: 4.0
+          resourceMemoryLimit: 4G
+    exec-model-training:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - model_training
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ 'xgboost' 'joblib'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.16.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef model_training(\n    input_dataset: Input[Dataset],\n    model_artifact:\
+          \ Output[Model],\n    metrics_output: Output[Metrics]\n):\n    import pandas\
+          \ as pd\n    from sklearn.model_selection import train_test_split\n    from\
+          \ xgboost import XGBClassifier\n    from sklearn.metrics import roc_auc_score\n\
+          \    import joblib\n    import os\n\n    BASE = \"/mnt/fraud-artifacts\"\
+          \n\n    #os.system(f\"mkdir -p {BASE}/models\")\n    #os.system(f\"chmod\
+          \ -R 777 {BASE} || true\")\n\n    model_dir = f\"{BASE}/models\"\n\n   \
+          \ df = pd.read_csv(input_dataset.path, nrows=100000, on_bad_lines=\"skip\"\
+          , low_memory=True)\n    X = df.drop(columns=[\"isFraud\"]).astype(\"float32\"\
+          )\n    y = df[\"isFraud\"]\n\n    X_train, X_test, y_train, y_test = train_test_split(\n\
+          \        X, y, test_size=0.2, random_state=42, stratify=y\n    )\n\n   \
+          \ X_train = X_train.sample(frac=0.3, random_state=42)\n    y_train = y_train.loc[X_train.index]\n\
+          \n    import gc\n    gc.collect()\n\n    # Train XGBoost with cost-sensitive\
+          \ weights\n    model = XGBClassifier(\n        scale_pos_weight=10,   #\
+          \ penalize false negatives\n        n_estimators=70,\n        max_depth=4,\n\
+          \        tree_method='hist',\n        random_state=42,\n        eval_metric=\"\
+          auc\"\n    )\n    model.fit(X_train, y_train)\n\n    auc = roc_auc_score(y_test,\
+          \ model.predict_proba(X_test)[:, 1])\n    print(f\"AUC-ROC: {auc:.4f}\"\
+          )\n\n    metrics_output.log_metric(\"auc_roc\", auc)\n\n    os.makedirs(model_artifact.path,\
+          \ exist_ok=True)\n\n    # PVC Storage\n    #joblib.dump(model, f\"{model_dir}/model.pkl\"\
+          )\n\n    # Kubeflow artifact for pipeline UI tracking\n    joblib.dump(model,\
+          \ f\"{model_artifact.path}/model.pkl\")\n\n"
+        image: python:3.9
+        resources:
+          cpuLimit: 2.0
+          memoryLimit: 4.0
+          resourceCpuLimit: '2'
+          resourceMemoryLimit: 4G
+pipelineInfo:
+  description: End-to-end fraud detection MLOps pipeline
+  name: fraud-detection-pipeline
+root:
+  dag:
+    tasks:
+      conditional-deployment:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-conditional-deployment
+        dependentTasks:
+        - model-evaluation
+        inputs:
+          parameters:
+            auc_score:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: model-evaluation
+            threshold:
+              componentInputParameter: deploy_threshold
+        taskInfo:
+          name: conditional-deployment
+      data-ingestion:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-data-ingestion
+        retryPolicy:
+          backoffDuration: 0s
+          backoffFactor: 2.0
+          backoffMaxDuration: 3600s
+          maxRetryCount: 3
+        taskInfo:
+          name: data-ingestion
+      data-preprocessing:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-data-preprocessing
+        dependentTasks:
+        - data-ingestion
+        - data-validation
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: output_dataset
+                producerTask: data-ingestion
+        retryPolicy:
+          backoffDuration: 0s
+          backoffFactor: 2.0
+          backoffMaxDuration: 3600s
+          maxRetryCount: 2
+        taskInfo:
+          name: data-preprocessing
+      data-validation:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-data-validation
+        dependentTasks:
+        - data-ingestion
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: output_dataset
+                producerTask: data-ingestion
+        retryPolicy:
+          backoffDuration: 0s
+          backoffFactor: 2.0
+          backoffMaxDuration: 3600s
+          maxRetryCount: 2
+        taskInfo:
+          name: data-validation
+      feature-engineering:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-feature-engineering
+        dependentTasks:
+        - data-preprocessing
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: processed_dataset
+                producerTask: data-preprocessing
+        taskInfo:
+          name: feature-engineering
+      model-evaluation:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-evaluation
+        dependentTasks:
+        - feature-engineering
+        - model-training
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: engineered_dataset
+                producerTask: feature-engineering
+            model_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: model_artifact
+                producerTask: model-training
+        taskInfo:
+          name: model-evaluation
+      model-training:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-training
+        dependentTasks:
+        - feature-engineering
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: engineered_dataset
+                producerTask: feature-engineering
+        retryPolicy:
+          backoffDuration: 0s
+          backoffFactor: 2.0
+          backoffMaxDuration: 3600s
+          maxRetryCount: 3
+        taskInfo:
+          name: model-training
+  inputDefinitions:
+    parameters:
+      deploy_threshold:
+        defaultValue: 0.85
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.16.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-data-ingestion:
+          pvcMount:
+          - constant: fraud-artifacts-pvc
+            mountPath: /mnt/fraud-artifacts
+            pvcNameParameter:
+              runtimeValue:
+                constant: fraud-artifacts-pvc
+        exec-data-preprocessing:
+          pvcMount:
+          - constant: fraud-artifacts-pvc
+            mountPath: /mnt/fraud-artifacts
+            pvcNameParameter:
+              runtimeValue:
+                constant: fraud-artifacts-pvc
+        exec-data-validation:
+          pvcMount:
+          - constant: fraud-artifacts-pvc
+            mountPath: /mnt/fraud-artifacts
+            pvcNameParameter:
+              runtimeValue:
+                constant: fraud-artifacts-pvc
+        exec-feature-engineering:
+          pvcMount:
+          - constant: fraud-artifacts-pvc
+            mountPath: /mnt/fraud-artifacts
+            pvcNameParameter:
+              runtimeValue:
+                constant: fraud-artifacts-pvc
+        exec-model-evaluation:
+          pvcMount:
+          - constant: fraud-artifacts-pvc
+            mountPath: /mnt/fraud-artifacts
+            pvcNameParameter:
+              runtimeValue:
+                constant: fraud-artifacts-pvc
+        exec-model-training:
+          pvcMount:
+          - constant: fraud-artifacts-pvc
+            mountPath: /mnt/fraud-artifacts
+            pvcNameParameter:
+              runtimeValue:
+                constant: fraud-artifacts-pvc

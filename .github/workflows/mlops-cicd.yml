@@ -1,0 +1,81 @@
+name: MLOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  ci:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint code
+        run: |
+          pip install flake8
+          flake8 .
+
+      - name: Run unit tests
+        run: |
+          pytest tests/
+
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Training Image
+        run: |
+          docker build -f Dockerfile.training -t ${{ secrets.DOCKER_USERNAME }}/fraud-training:latest .
+
+      - name: Build Inference Image
+        run: |
+          docker build -f Dockerfile.inference -t ${{ secrets.DOCKER_USERNAME }}/fraud-inference:latest .
+
+      - name: Push Images
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/fraud-training:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/fraud-inference:latest
+
+  deploy:
+    name: Trigger Kubeflow Pipeline
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure Kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG }}" > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Run Kubeflow Pipeline
+        run: |
+          kubectl apply -f fraud_pipeline.yaml
