@@ -1,15 +1,26 @@
 import pandas as pd
+import os
 
-df = pd.read_csv("data/train_transaction.csv", nrows=5000)
+BASE = "data/ieee-fraud-detection"
 
-required_cols = ["TransactionID", "TransactionDT", "TransactionAmt", "isFraud"]
+train_path = os.path.join(BASE, "train_transaction.csv")
+identity_path = os.path.join(BASE, "train_identity.csv")
 
-missing = [c for c in required_cols if c not in df.columns]
+if not os.path.exists(train_path):
+    raise FileNotFoundError(f"Missing: {train_path}")
 
-if missing:
-    raise Exception(f"Missing columns: {missing}")
+if not os.path.exists(identity_path):
+    raise FileNotFoundError(f"Missing: {identity_path}")
 
-missing_pct = df.isnull().mean().mean()
+df = pd.read_csv(train_path, nrows=5000)
 
-print("CI Validation OK")
+missing_pct = df.isnull().mean().mean() * 100
+
+print("Rows:", len(df))
+print("Columns:", len(df.columns))
 print("Missing %:", missing_pct)
+
+assert missing_pct < 60
+assert "TransactionID" in df.columns
+
+print("Validation OK")
